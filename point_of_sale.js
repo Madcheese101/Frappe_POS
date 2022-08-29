@@ -1261,6 +1261,7 @@ class POSItems {
 
 		frappe.db.get_value("Item Group", {lft: 1, is_group: 1}, "name", (r) => {
 			this.parent_item_group = r.name;
+			this.parent_item_size = "";
 			this.make_dom();
 			this.make_fields();
 
@@ -1292,6 +1293,8 @@ class POSItems {
 				<div class="search-field">
 				</div>
 				<div class="item-group-field">
+				</div>
+				<div class="item-size-field">
 				</div>
 			</div>
 			<div class="items-wrapper">
@@ -1330,8 +1333,10 @@ class POSItems {
 				const search_term = e.target.value;
 				const item_group = this.item_group_field ?
 					this.item_group_field.get_value() : '';
+				const item_size = this.item_size_field ?
+					this.item_size_field.get_value() : '';
 
-				this.filter_items({ search_term:search_term,  item_group: item_group});
+				this.filter_items({ search_term:search_term,  item_group: item_group, item_size: item_size});
 			}, 300);
 		});
 
@@ -1357,6 +1362,34 @@ class POSItems {
 				}
 			},
 			parent: this.wrapper.find('.item-group-field'),
+			render_input: true
+		});
+
+		this.item_size_field = frappe.ui.form.make_control({
+			df: {
+				fieldtype: 'Link',
+				label: 'Item Size',
+				options: 'Item Attribute Value',
+				default: me.parent_item_size,
+				filters:{
+					parent:"المقاس"
+				},
+				onchange: () => {
+					const search_term = this.search_field ?
+						this.search_field.get_value() : '';
+					const item_size = this.item_size_field.get_value();
+					
+					if (item_size) {
+						this.filter_items({search_term:search_term, item_size: item_size, size_trigger: 1});
+					}
+				}
+				,get_query: () => {
+					return {
+						query: 'erpnext.selling.page.point_of_sale.point_of_sale.item_size_query'
+					};
+				}
+			},
+			parent: this.wrapper.find('.item-size-field'),
 			render_input: true
 		});
 	}
@@ -1396,8 +1429,8 @@ class POSItems {
 		this.clusterize.update(row_items);
 	}
 
-	filter_items({ search_term='', item_group=this.parent_item_group }={}) {
-		if (search_term) {
+	filter_items({ search_term='', item_group=this.parent_item_group, item_size=this.parent_item_size, size_trigger = 0 }={}) {
+		if (search_term  && size_trigger == 0) {
 			search_term = search_term.toLowerCase();
 
 			// memoize
@@ -1409,12 +1442,15 @@ class POSItems {
 				this.set_item_in_the_cart(items);
 				return;
 			}
-		} else if (item_group == this.parent_item_group) {
+		} else if (item_group == this.parent_item_group  && item_size==this.parent_item_size) {
 			this.items = this.all_items;
 			return this.render_items(this.all_items);
+
+		} else if (search_term && size_trigger == 1){
+			search_term = search_term.toLowerCase();
 		}
 
-		this.get_items({search_value: search_term, item_group })
+		this.get_items({search_value: search_term, item_group, item_size })
 			.then(({ items, serial_no, batch_no, barcode }) => {
 				if (search_term && !barcode) {
 					this.search_index[search_term] = items;
@@ -1514,7 +1550,7 @@ class POSItems {
 		return template;
 	}
 
-	get_items({start = 0, page_length = 40, search_value='', item_group=this.parent_item_group}={}) {
+	get_items({start = 0, page_length = 40, search_value='', item_group=this.parent_item_group, item_size=this.parent_item_size}={}) {
 		const price_list = this.frm.doc.selling_price_list;
 		return new Promise(res => {
 			frappe.call({
@@ -1524,6 +1560,7 @@ class POSItems {
 					start,
 					page_length,
 					price_list,
+					item_size,
 					item_group,
 					search_value,
 					pos_profile: this.frm.doc.pos_profile

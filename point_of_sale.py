@@ -10,7 +10,7 @@ from erpnext.accounts.doctype.pos_profile.pos_profile import get_item_groups
 from six import string_types
 
 @frappe.whitelist()
-def get_items(start, page_length, price_list, item_group, search_value="", pos_profile=None):
+def get_items(start, page_length, price_list, item_size, item_group, search_value="", pos_profile=None):
 	data = dict()
 	warehouse = ""
 	display_items_in_stock = 0
@@ -24,12 +24,17 @@ def get_items(start, page_length, price_list, item_group, search_value="", pos_p
 	if search_value:
 		data = search_serial_or_batch_or_barcode_number(search_value)
 
+	item_size_value = ""
+	
+	if item_size:
+		item_size_value = frappe.db.get_value("Item Attribute Value", item_size, ['attribute_value'])
+
 	item_code = data.get("item_code") if data.get("item_code") else search_value
 	serial_no = data.get("serial_no") if data.get("serial_no") else ""
 	batch_no = data.get("batch_no") if data.get("batch_no") else ""
 	barcode = data.get("barcode") if data.get("barcode") else ""
 
-	condition = get_conditions(item_code, serial_no, batch_no, barcode)
+	condition = get_conditions(item_code, serial_no, batch_no, barcode, item_size_value)
 
 	if pos_profile:
 		condition += get_item_group_condition(pos_profile)
@@ -152,12 +157,16 @@ def search_serial_or_batch_or_barcode_number(search_value):
 
 	return {}
 
-def get_conditions(item_code, serial_no, batch_no, barcode):
+def get_conditions(item_code, serial_no, batch_no, barcode, item_size):
 	if serial_no or batch_no or barcode:
 		return "name = {0}".format(frappe.db.escape(item_code))
 
-	return """(name like {item_code}
-		or item_name like {item_code})""".format(item_code = frappe.db.escape('%' + item_code + '%'))
+	if item_size:
+		return ("""and (i.name like {item_code} or i.item_name like {item_code}) and i.item_name like {item_size}"""
+				.format(item_code=frappe.db.escape('%' + item_code + '%'),item_size=frappe.db.escape('%' + item_size + '%')))
+	
+	return ("""and (i.name like {item_code} or i.item_name like {item_code})"""
+				.format(item_code=frappe.db.escape('%' + item_code + '%')))
 
 def get_item_group_condition(pos_profile):
 	cond = "and 1=1"
@@ -185,3 +194,16 @@ def item_group_query(doctype, txt, searchfield, start, page_len, filters):
 			where {condition} and (name like %(txt)s) limit {start}, {page_len}"""
 		.format(condition = cond, start=start, page_len= page_len),
 			{'txt': '%%%s%%' % txt})
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def item_size_query(doctype, txt, searchfield, start, page_len, filters):
+	cond = "1=1 and parent='المقاس'"
+	
+	#attribute_value
+	result = frappe.db.sql(""" select distinct name, attribute_value from `tabItem Attribute Value`
+			where {condition} and (name like %(txt)s) ORDER BY attribute_value ASC limit {start}, {page_len}"""
+		.format(condition = cond, start=start, page_len= page_len),
+			{'txt': '%%%s%%' % txt})
+
+	return result
